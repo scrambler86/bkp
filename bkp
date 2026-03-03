@@ -54,7 +54,9 @@ param(
 
     [switch]$TestEmail,
     [switch]$TestDiscord,
-    [switch]$TestAll
+    [switch]$TestAll,
+
+    [switch]$PrepareForCompile
 )
 
 # [BOOKMARK:ELEVATION]
@@ -87,6 +89,9 @@ if (-not $RunEvent -and -not $RunDailyCheck) {
 
 # [BOOKMARK:DEFAULTS]
 $ErrorActionPreference = 'Stop'
+# Base64 dello script embedded per i task SYSTEM (aggiornato da -PrepareForCompile)
+$script:BKP_EMBEDDED_PS1 = 'PLACEHOLDER_BASE64'
+$script:BKP_VERSION = '5.12'
 
 try {
     [Net.ServicePointManager]::SecurityProtocol =
@@ -2801,78 +2806,35 @@ function Get-BkpInstalledVersion([string]$bkpPath) {
 }
 
 function Write-BkpScript {
-    # Copia se stesso (il file/exe corrente) come bkp.ps1 nella destinazione.
-    # Funziona sia da .ps1 che da .exe compilato (ps2exe):
-    #   - da .ps1: copia direttamente il file sorgente
-    #   - da .exe: estrae il ps1 embedded (ps2exe lo espone via $PSCommandPath o MyCommand)
-    param([string]$TargetPath)
-    if ([string]::IsNullOrWhiteSpace($TargetPath)) {
-        $TargetPath = Join-Path $env:ProgramData 'BackupMonitor\bkp.ps1'
-    }
+    Ensure-Dir $ConfigDir
+    $dest = Join-Path $ConfigDir 'bkp.ps1'
 
-    Ensure-Dir (Split-Path $TargetPath -Parent)
-
-    # Determina il file sorgente da copiare
-    $sourceFile = $null
-    foreach ($candidate in @($PSCommandPath, $MyInvocation.MyCommand.Path, $MyInvocation.PSCommandPath, $MyInvocation.MyCommand.Definition)) {
-        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path $candidate)) {
-            $ext = [System.IO.Path]::GetExtension($candidate).ToLower()
-            if ($ext -eq '.ps1') {
-                $sourceFile = $candidate
-                break
-            }
-        }
-    }
-
-    # Fallback: cerca il ps1 nella stessa cartella dell'exe
-    if ([string]::IsNullOrWhiteSpace($sourceFile)) {
-        $exeDir = $null
-        try { $exeDir = [System.IO.Path]::GetDirectoryName([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName) } catch { }
-        if ($exeDir) {
-            $candidate = Join-Path $exeDir 'backup.ps1'
-            if (Test-Path $candidate) { $sourceFile = $candidate }
-        }
-    }
-
-    if ([string]::IsNullOrWhiteSpace($sourceFile)) {
-        throw "Impossibile trovare il file sorgente .ps1 da copiare. Assicurati che backup.ps1 sia nella stessa cartella dell'exe."
-    }
-
-    # Copia il file (rimuovi hidden/system prima se esiste gia)
-    try {
-        if (Test-Path $TargetPath) {
-            $attr = [System.IO.File]::GetAttributes($TargetPath)
-            $clean = $attr -band (-bnot ([System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System))
-            [System.IO.File]::SetAttributes($TargetPath, $clean)
-        }
-    } catch { }
-
-    Copy-Item -Path $sourceFile -Destination $TargetPath -Force -ErrorAction Stop
-
-    # Applica ACL: SYSTEM + Administrators + utente corrente
-    try {
-        $acl = Get-Acl -Path $TargetPath
-        $allow  = [System.Security.AccessControl.AccessControlType]::Allow
-        $none   = [System.Security.AccessControl.InheritanceFlags]::None
-        $noprop = [System.Security.AccessControl.PropagationFlags]::None
-        $acl.SetAccessRuleProtection($true, $false)
-        $acl.Access | ForEach-Object { $acl.RemoveAccessRule($_) } | Out-Null
-        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('NT AUTHORITY\SYSTEM',    'FullControl', $none, $noprop, $allow)))
-        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule('BUILTIN\Administrators', 'FullControl', $none, $noprop, $allow)))
+    # Prova prima con il Base64 embedded (funziona sia da .exe che da .ps1 precompilato)
+    if (-not [string]::IsNullOrWhiteSpace($script:BKP_EMBEDDED_PS1) -and
+        $script:BKP_EMBEDDED_PS1 -ne 'PLACEHOLDER_BASE64') {
         try {
-            $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-            if ($me) { $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule($me, 'FullControl', $none, $noprop, $allow))) }
-        } catch { }
-        Set-Acl -Path $TargetPath -AclObject $acl -ErrorAction SilentlyContinue
-    } catch { }
+            $bytes = [Convert]::FromBase64String($script:BKP_EMBEDDED_PS1)
+            [System.IO.File]::WriteAllBytes($dest, $bytes)
+            Write-DiagLog "Write-BkpScript: scritto da Base64 embedded -> $dest"
+            return
+        } catch {
+            Write-DiagLog "Write-BkpScript: fallback da Base64 fallito: $($_.Exception.Message)" 'WARN'
+        }
+    }
 
-    # Attributi Hidden + System
-    try {
-        $attr = [System.IO.File]::GetAttributes($TargetPath)
-        [System.IO.File]::SetAttributes($TargetPath, $attr -bor [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System)
-    } catch { }
+    # Fallback: copia se stesso (funziona solo quando eseguito come .ps1)
+    $src = Get-SelfScriptPath
+    if (-not [string]::IsNullOrWhiteSpace($src) -and (Test-Path $src)) {
+        try {
+            Copy-Item -Path $src -Destination $dest -Force
+            Write-DiagLog "Write-BkpScript: copiato da $src -> $dest"
+            return
+        } catch {
+            Write-DiagLog "Write-BkpScript: copia file fallita: $($_.Exception.Message)" 'WARN'
+        }
+    }
 
-    return $TargetPath
+    throw "Write-BkpScript: impossibile scrivere bkp.ps1 (né Base64 né file sorgente disponibili)"
 }
 
 function Write-BkpScript_CHUNKS_UNUSED {
@@ -3264,6 +3226,25 @@ function Get-TaskInstalled([string]$taskName) {
 $cfg = Load-Config
 [void](Get-OrCreate-SecretKeyBytes)
 
+if ($PrepareForCompile) {
+    $selfPath = Get-SelfScriptPath
+    if ([string]::IsNullOrWhiteSpace($selfPath) -or -not (Test-Path $selfPath)) {
+        Write-Host "ERRORE: impossibile trovare il file script corrente." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Lettura script da: $selfPath" -ForegroundColor Cyan
+    $bytes  = [System.IO.File]::ReadAllBytes($selfPath)
+    $b64    = [Convert]::ToBase64String($bytes)
+
+    $content = [System.IO.File]::ReadAllText($selfPath, [System.Text.Encoding]::UTF8)
+    $newContent = $content -replace `
+        "(\`$script:BKP_EMBEDDED_PS1\s*=\s*')[^']*(')", `
+        "`${1}$b64`${2}"
+
+    [System.IO.File]::WriteAllText($selfPath, $newContent, [System.Text.Encoding]::UTF8)
+    Write-Host "OK: BKP_EMBEDDED_PS1 aggiornato. Ora puoi compilare con ps2exe." -ForegroundColor Green
+    exit 0
+}
 
 if ($Setup) { Run-SetupForm; exit 0 }
 
@@ -3292,7 +3273,6 @@ if ($RunEvent) {
     Write-DiagLog ("BackupMode={0}  BackupName={1}" -f $cfg.BackupMode, $cfg.BackupName)
     Touch-LastRun 'EVENT'
     try {
-        # Mostra quali log verranno scansionati
         $triggerLogs = @(Get-TriggerEventLogNames $cfg)
         if ($triggerLogs.Count -eq 0) {
             Write-DiagLog 'NESSUN log trigger trovato/disponibile sul sistema' 'WARN'
