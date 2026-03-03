@@ -456,7 +456,7 @@ function Get-DefaultConfig {
         SuccessEventIds  = @(4,14,
                              200)   # File History (Win8/10/11): ciclo backup completato
         FailureEventIds  = @(5,19,49,50,51,52,517,518,521,527,533,545,546,561,
-                             201,204)  # File History (Win8/10/11): scan/backup failed, condizione anomala
+                             201,203,204)  # File History (Win8/10/11): scan/backup failed, condizione anomala
         SuccessMessagePatterns = @(
             'backup completato correttamente',
             'completato correttamente',
@@ -629,9 +629,9 @@ function Normalize-Config($cfg) {
     # Se mancano, gli eventi (es. EventID 201) restano UNKNOWN e NON notificano.
     $useFH = ($cfg.BackupMode -eq 'FileHistory') -or ($cfg.BackupMode -eq 'Auto' -and [bool]$cfg.MonitorFileHistory)
     if ($useFH) {
-        # EventID File History (Win8/10/11): 200=OK, 201/204=FAIL
+        # EventID File History (Win8/10/11): 200=OK, 201/203/204=FAIL
         $cfg.SuccessEventIds = Ensure-IntListContains $cfg.SuccessEventIds @(200)
-        $cfg.FailureEventIds = Ensure-IntListContains $cfg.FailureEventIds @(201,204)
+        $cfg.FailureEventIds = Ensure-IntListContains $cfg.FailureEventIds @(201,203,204)
 
         # Pattern minimi (match su messaggio) per coprire casi dove l'ID non basta o differisce
         $cfg.SuccessMessagePatterns = Ensure-StringListContains $cfg.SuccessMessagePatterns @(
@@ -875,7 +875,7 @@ function Get-AllBackupLogs([string]$preferredLogName) {
     #   Microsoft-Windows-StorageManagement/Operational
     #   Microsoft-Windows-WindowsBackup/ActionCenter
     # File History (Win8/10/11):
-    #   Microsoft-Windows-FileHistory-Engine/BackupLog  (EventID 200=OK, 201/204=FAIL)
+    #   Microsoft-Windows-FileHistory-Engine/BackupLog  (EventID 200=OK, 201/203/204=FAIL)
     #   Microsoft-Windows-FileHistory-Core/WHC
     $candidates = New-Object System.Collections.Generic.List[string]
     foreach ($name in @(
@@ -3105,7 +3105,7 @@ switch ($mode) {
         $fhCoreLog   = 'Microsoft-Windows-FileHistory-Core/WHC'
 
         if (Test-EventLogExists $fhEngineLog) {
-            $triggers.Add((New-EventTriggerXml $fhEngineLog '*[System[(EventID=200 or EventID=201 or EventID=204)]]')) | Out-Null
+            $triggers.Add((New-EventTriggerXml $fhEngineLog '*[System[(EventID=200 or EventID=201 or EventID=203 or EventID=204)]]')) | Out-Null
         }
         if (Test-EventLogExists $fhCoreLog) {
             # WHC: EventID 200=OK (ciclo completato), 201=FAIL (errore backup)
@@ -3118,7 +3118,7 @@ switch ($mode) {
         if (-not [string]::IsNullOrWhiteSpace($resolvedLogName) -and (Test-EventLogExists $resolvedLogName)) {
             $sel = '*'
             $fhLogName = 'Microsoft-Windows-FileHistory-Engine/BackupLog'
-            if ($resolvedLogName -eq $fhLogName) { $sel = '*[System[(EventID=200 or EventID=201 or EventID=204)]]' }
+            if ($resolvedLogName -eq $fhLogName) { $sel = '*[System[(EventID=200 or EventID=201 or EventID=203 or EventID=204)]]' }
             $triggers.Add((New-EventTriggerXml $resolvedLogName $sel)) | Out-Null
         }
 
@@ -3129,7 +3129,7 @@ switch ($mode) {
                 $fhEngineLog = 'Microsoft-Windows-FileHistory-Engine/BackupLog'
                 $fhCoreLog   = 'Microsoft-Windows-FileHistory-Core/WHC'
                 if (($fhEngineLog -ne $resolvedLogName) -and (Test-EventLogExists $fhEngineLog)) {
-                    $triggers.Add((New-EventTriggerXml $fhEngineLog '*[System[(EventID=200 or EventID=201 or EventID=204)]]')) | Out-Null
+                    $triggers.Add((New-EventTriggerXml $fhEngineLog '*[System[(EventID=200 or EventID=201 or EventID=203 or EventID=204)]]')) | Out-Null
                 }
                 if (($fhCoreLog -ne $resolvedLogName) -and (Test-EventLogExists $fhCoreLog)) {
                     $triggers.Add((New-EventTriggerXml $fhCoreLog '*[System[(EventID=200 or EventID=201)]]')) | Out-Null
