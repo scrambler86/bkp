@@ -3152,8 +3152,8 @@ function Install-AutomationTasks($cfg) {
         throw "Impossibile trovare un registro eventi valido per la modalità selezionata ($bm). Verifica: $hint"
     }
 
-    $eventTask = $cfg.Tasks.EventTaskName
-    $dailyTask = $cfg.Tasks.DailyTaskName
+    $eventTask = $cfg.Tasks.EventTaskName -replace '[^\w]', '_'
+    $dailyTask = $cfg.Tasks.DailyTaskName -replace '[^\w]', '_'
 
     if ([string]::IsNullOrWhiteSpace($eventTask)) { throw "EventTaskName non valido nella config." }
     if ([string]::IsNullOrWhiteSpace($dailyTask))  { throw "DailyTaskName non valido nella config." }
@@ -3273,7 +3273,11 @@ $eventTrigger = ($triggers -join '')
         [System.IO.File]::WriteAllText($tmp, $xml, [System.Text.Encoding]::Unicode)
         Write-DiagLog "task_event.xml scritto in: $tmp" 'INFO'
         try {
-            Register-ScheduledTask -Xml (Get-Content $tmp -Raw) -TaskName $eventTask -Force -ErrorAction Stop | Out-Null
+            $result = & schtasks.exe /Create /TN $eventTask /XML $tmp /F 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                throw "schtasks /Create XML fallito (exit $LASTEXITCODE): $result"
+            }
+            Write-DiagLog "Task EVENT creato via schtasks XML: $result" 'INFO'
         } catch {
             Write-DiagLog "XML task EVENT: $xml" 'ERROR'
             throw
