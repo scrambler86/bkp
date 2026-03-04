@@ -1513,10 +1513,19 @@ function Get-FileHistoryLastBackupTime {
                 $dataPath = Join-Path $targetUrl (Join-Path 'FileHistory' $storePath)
                 if (-not (Test-Path $dataPath)) { continue }
 
-                # Scan solo 2 livelli di profondità (veloce ma accurato)
-                $latest = Get-ChildItem -Path $dataPath -Depth 2 -File -ErrorAction Stop |
+                # Prima cerca file recenti (ultimi 7 giorni) -- veloce
+                $cutoff = (Get-Date).AddDays(-7)
+                $latest = Get-ChildItem -Path $dataPath -Recurse -File -ErrorAction Stop |
+                          Where-Object { $_.LastWriteTime -gt $cutoff } |
                           Sort-Object LastWriteTime -Descending |
                           Select-Object -First 1
+
+                # Fallback: cerca senza limite di tempo
+                if ($null -eq $latest) {
+                    $latest = Get-ChildItem -Path $dataPath -Recurse -File -ErrorAction Stop |
+                              Sort-Object LastWriteTime -Descending |
+                              Select-Object -First 1
+                }
 
                 if ($null -eq $latest) { continue }
 
