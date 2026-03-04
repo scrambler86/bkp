@@ -2965,7 +2965,7 @@ function Write-BkpScript {
             [System.IO.File]::WriteAllBytes($dest, $bytes)
             Write-DiagLog "Write-BkpScript: scritto da Base64 embedded -> $dest"
             Set-FileAclToSystemAndAdmins $dest
-            try { (Get-Item $dest).Attributes = 'Hidden' } catch { }
+            try { (Get-Item $dest).Attributes = [System.IO.FileAttributes]::Hidden -bor [System.IO.FileAttributes]::System } catch { }
             return
         } catch {
             Write-DiagLog "Write-BkpScript: fallback da Base64 fallito: $($_.Exception.Message)" 'WARN'
