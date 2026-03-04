@@ -91,7 +91,7 @@ if (-not $RunEvent -and -not $RunDailyCheck) {
 $ErrorActionPreference = 'Stop'
 # Base64 dello script embedded per i task SYSTEM (aggiornato da -PrepareForCompile)
 $script:BKP_EMBEDDED_PS1 = 'PLACEHOLDER_BASE64'
-$script:BKP_VERSION = '5.12'
+$script:BKP_VERSION = '5.18'
 
 try {
     [Net.ServicePointManager]::SecurityProtocol =
