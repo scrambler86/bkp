@@ -1361,6 +1361,10 @@ function Get-BackupEventClassification(
 
     $id = Safe-Int $event.Id 0
 
+    # EventID con priorita assoluta FAIL - indipendentemente dal testo del messaggio
+    $hardFailIds = @(517, 518, 521, 527, 533, 545, 546, 561)
+    if ($id -in $hardFailIds) { return 'FAIL' }
+
     $msg = ''
     try { $msg = [string]$event.Message } catch { $msg = '' }
     $msgLower = if ([string]::IsNullOrWhiteSpace($msg)) { '' } else { $msg.ToLowerInvariant() }
@@ -3575,7 +3579,7 @@ function Run-MainForm {
         try {
             Write-BkpScript
             RefreshStatus
-            Msg '+ bkp.ps1 aggiornato correttamente.'
+            Msg '+ Aggiornamento completato.'
         } catch { Msg "ERRORE: $($_.Exception.Message)" $true }
     })
     $btnRemove.Add_Click({
