@@ -1487,15 +1487,11 @@ function Get-WBJobState($cfg) {
 
 function Get-FileHistoryLastBackupTime {
     try {
-        # Cerca il Config XML in tutti i profili utente (funziona anche quando gira come SYSTEM)
         $configPaths = @()
-
-        # Utente corrente
         $configPaths += Join-Path $env:USERPROFILE 'AppData\Local\Microsoft\Windows\FileHistory\Configuration\Config1.xml'
 
-        # Tutti gli utenti (per quando gira come SYSTEM nel task DAILY)
-        $usersRoot = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetDirectoryName([System.IO.Path]::GetDirectoryName($env:USERPROFILE)))
         try {
+            $usersRoot = Split-Path (Split-Path $env:USERPROFILE -Parent) -Parent
             Get-ChildItem $usersRoot -Directory -ErrorAction Stop | ForEach-Object {
                 $p = Join-Path $_.FullName 'AppData\Local\Microsoft\Windows\FileHistory\Configuration\Config1.xml'
                 if ($p -notin $configPaths) { $configPaths += $p }
@@ -1515,16 +1511,17 @@ function Get-FileHistoryLastBackupTime {
                 if ([string]::IsNullOrWhiteSpace($targetUrl) -or [string]::IsNullOrWhiteSpace($storePath)) { continue }
 
                 $dataPath = Join-Path $targetUrl (Join-Path 'FileHistory' $storePath)
-
                 if (-not (Test-Path $dataPath)) { continue }
 
-                # Usa LastWriteTime della cartella Data — istantaneo e affidabile
-                $dataDir = Get-Item -Path $dataPath -ErrorAction Stop
-                $t = $dataDir.LastWriteTime
+                # Scan solo 2 livelli di profondità (veloce ma accurato)
+                $latest = Get-ChildItem -Path $dataPath -Depth 2 -File -ErrorAction Stop |
+                          Sort-Object LastWriteTime -Descending |
+                          Select-Object -First 1
 
-                # Prende il timestamp più recente tra tutte le config trovate
-                if ($null -eq $bestTime -or $t -gt $bestTime) {
-                    $bestTime = $t
+                if ($null -eq $latest) { continue }
+
+                if ($null -eq $bestTime -or $latest.LastWriteTime -gt $bestTime) {
+                    $bestTime = $latest.LastWriteTime
                 }
             } catch { }
         }
