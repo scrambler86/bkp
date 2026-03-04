@@ -2959,9 +2959,31 @@ function Get-BkpInstalledVersion([string]$bkpPath) {
     return $null
 }
 
+function Reset-FileAclForWrite([string]$path) {
+    # Resetta le ACL di un file esistente per permettere la sovrascrittura
+    try {
+        if (-not (Test-Path $path)) { return }
+        $acl = Get-Acl -Path $path
+        $currentIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $sidAdmins = New-Object System.Security.Principal.SecurityIdentifier('S-1-5-32-544')
+        $ruleAdmins = New-Object System.Security.AccessControl.FileSystemAccessRule($sidAdmins,'FullControl','Allow')
+        $acl.SetAccessRuleProtection($false, $true) | Out-Null
+        $acl.AddAccessRule($ruleAdmins) | Out-Null
+        if ($currentIdentity -and $currentIdentity.User) {
+            $ruleCurrent = New-Object System.Security.AccessControl.FileSystemAccessRule($currentIdentity.User,'FullControl','Allow')
+            $acl.AddAccessRule($ruleCurrent) | Out-Null
+        }
+        Set-Acl -Path $path -AclObject $acl
+        # Rimuovi anche attributi Hidden/System che bloccano la sovrascrittura
+        try { (Get-Item $path -Force).Attributes = [System.IO.FileAttributes]::Normal } catch { }
+    } catch { }
+}
+
 function Write-BkpScript {
     Ensure-Dir $ConfigDir
     $dest = Join-Path $ConfigDir 'bkp.ps1'
+    # Se il file esiste gia, resetta ACL e attributi prima di sovrascrivere
+    Reset-FileAclForWrite $dest
     # Prova prima con il Base64 embedded (funziona sia da .exe che da .ps1 precompilato)
     if (-not [string]::IsNullOrWhiteSpace($script:BKP_EMBEDDED_PS1) -and
         $script:BKP_EMBEDDED_PS1 -ne 'PLACEHOLDER_BASE64') {
@@ -3515,7 +3537,7 @@ function Run-MainForm {
         $bkpPath = Join-Path $env:ProgramData 'BackupMonitor\bkp.ps1'
         $installedVer = Get-BkpInstalledVersion $bkpPath
         $currentVer   = $script:BKP_VERSION
-        $isFirstInstall = (-not (Test-Path (Join-Path $env:ProgramData 'BackupMonitor\config.json')))
+        $isFirstInstall = (-not (Test-Path (Join-Path $env:ProgramData 'BackupMonitor\config.json'))) -or (-not (Test-Path $bkpPath))
 
         if ($isFirstInstall -or [string]::IsNullOrWhiteSpace($installedVer)) {
             $btnInstall.Text      = 'Installa'
@@ -3545,7 +3567,7 @@ function Run-MainForm {
         try {
             Write-BkpScript
             RefreshStatus
-            Msg '+ bkp.ps1 installato correttamente.'
+            Msg '+ bkp.ps1 aggiornato correttamente.'
         } catch { Msg "ERRORE: $($_.Exception.Message)" $true }
     })
     $btnRemove.Add_Click({
