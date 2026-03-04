@@ -458,10 +458,8 @@ function Get-DefaultConfig {
         BackupName = 'Server-Produzione-01'
 
         EventLogName     = 'Microsoft-Windows-Backup'
-        SuccessEventIds  = @(4,14,
-                             200)   # File History (Win8/10/11): ciclo backup completato
-        FailureEventIds  = @(5,19,49,50,51,52,517,518,521,527,533,545,546,561,
-                             201,203,204)  # File History (Win8/10/11): scan/backup failed, condizione anomala
+        SuccessEventIds  = @(4,14)
+        FailureEventIds  = @(5,19,49,50,51,52,517,518,521,527,533,545,546,561)
         SuccessMessagePatterns = @(
             'backup completato correttamente',
             'completato correttamente',
@@ -510,6 +508,9 @@ function Get-DefaultConfig {
             'unable to scan user libraries',
             'unable to scan',
             'unusual condition was encountered'
+            'impossibile avviare un ciclo di backup',
+            'unable to start a backup cycle',
+            'condizione anomala'
         )
         IgnoreMessagePatterns = @(
             'the backup operation has started',
@@ -518,6 +519,8 @@ function Get-DefaultConfig {
             'backup avviato',
             'operazione di backup avviata',
             'backup in corso'
+            'backup del file non eseguito',
+            'un nuovo tentativo di backup verrà eseguito'
         )
         MaxEventsScan    = 120
 
@@ -629,14 +632,14 @@ function Normalize-Config($cfg) {
         default       { }
     }
 
-    # [BOOKMARK:FH_RULES]
+ # [BOOKMARK:FH_RULES]
     # Modalità FileHistory: su config vecchie può mancare la lista ID/pattern di File History.
     # Se mancano, gli eventi (es. EventID 201) restano UNKNOWN e NON notificano.
     $useFH = ($cfg.BackupMode -eq 'FileHistory') -or ($cfg.BackupMode -eq 'Auto' -and [bool]$cfg.MonitorFileHistory)
     if ($useFH) {
-        # EventID File History (Win8/10/11): 200=OK, 201/203/204=FAIL
-        $cfg.SuccessEventIds = Ensure-IntListContains $cfg.SuccessEventIds @(200)
-        $cfg.FailureEventIds = Ensure-IntListContains $cfg.FailureEventIds @(201,203,204)
+        # EventID File History (Win8/10/11): 200=FAIL (ambiguo), 201/202/203/204=FAIL
+        $cfg.SuccessEventIds = @($cfg.SuccessEventIds | Where-Object { $_ -ne 200 })
+        $cfg.FailureEventIds = Ensure-IntListContains $cfg.FailureEventIds @(200,201,202,203,204)
 
         # Pattern minimi (match su messaggio) per coprire casi dove l'ID non basta o differisce
         $cfg.SuccessMessagePatterns = Ensure-StringListContains $cfg.SuccessMessagePatterns @(
@@ -647,10 +650,17 @@ function Normalize-Config($cfg) {
             'impossibile cercare le modifiche nelle librerie dell''utente',
             'impossibile cercare le modifiche nelle librerie',
             'unable to scan user libraries',
-            'unusual condition was encountered'
+            'unusual condition was encountered',
+            'impossibile avviare un ciclo di backup',
+            'unable to start a backup cycle',
+            'impossibile completare un ciclo di backup',
+            'condizione anomala'
+        )
+        $cfg.IgnoreMessagePatterns = Ensure-StringListContains $cfg.IgnoreMessagePatterns @(
+            'backup del file non eseguito',
+            'un nuovo tentativo di backup verrà eseguito'
         )
     }
-
 
     $cfg.Tasks.EventTaskName = "Monitor_Backup_$($cfg.BackupName)_EVENT"
     $cfg.Tasks.DailyTaskName = "Monitor_Backup_$($cfg.BackupName)_DAILY"
