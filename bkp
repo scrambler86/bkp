@@ -1487,30 +1487,49 @@ function Get-WBJobState($cfg) {
 
 function Get-FileHistoryLastBackupTime {
     try {
-        $configXmlPath = Join-Path $env:USERPROFILE `
-            'AppData\Local\Microsoft\Windows\FileHistory\Configuration\Config1.xml'
+        # Cerca il Config XML in tutti i profili utente (funziona anche quando gira come SYSTEM)
+        $configPaths = @()
 
-        if (-not (Test-Path $configXmlPath)) { return $null }
+        # Utente corrente
+        $configPaths += Join-Path $env:USERPROFILE 'AppData\Local\Microsoft\Windows\FileHistory\Configuration\Config1.xml'
 
-        [xml]$fhCfg = Get-Content $configXmlPath -ErrorAction Stop
-        $targetUrl  = $fhCfg.DataProtectionUserConfig.Target.TargetUrl
-        $storePath  = $fhCfg.DataProtectionUserConfig.Target.TargetBackupStorePath
+        # Tutti gli utenti (per quando gira come SYSTEM nel task DAILY)
+        $usersRoot = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetDirectoryName([System.IO.Path]::GetDirectoryName($env:USERPROFILE)))
+        try {
+            Get-ChildItem $usersRoot -Directory -ErrorAction Stop | ForEach-Object {
+                $p = Join-Path $_.FullName 'AppData\Local\Microsoft\Windows\FileHistory\Configuration\Config1.xml'
+                if ($p -notin $configPaths) { $configPaths += $p }
+            }
+        } catch { }
 
-        if ([string]::IsNullOrWhiteSpace($targetUrl) -or [string]::IsNullOrWhiteSpace($storePath)) {
-            return $null
+        $bestTime = $null
+
+        foreach ($configXmlPath in $configPaths) {
+            try {
+                if (-not (Test-Path $configXmlPath)) { continue }
+
+                [xml]$fhCfg = Get-Content $configXmlPath -ErrorAction Stop
+                $targetUrl  = $fhCfg.DataProtectionUserConfig.Target.TargetUrl
+                $storePath  = $fhCfg.DataProtectionUserConfig.Target.TargetBackupStorePath
+
+                if ([string]::IsNullOrWhiteSpace($targetUrl) -or [string]::IsNullOrWhiteSpace($storePath)) { continue }
+
+                $dataPath = Join-Path $targetUrl (Join-Path 'FileHistory' $storePath)
+
+                if (-not (Test-Path $dataPath)) { continue }
+
+                # Usa LastWriteTime della cartella Data — istantaneo e affidabile
+                $dataDir = Get-Item -Path $dataPath -ErrorAction Stop
+                $t = $dataDir.LastWriteTime
+
+                # Prende il timestamp più recente tra tutte le config trovate
+                if ($null -eq $bestTime -or $t -gt $bestTime) {
+                    $bestTime = $t
+                }
+            } catch { }
         }
 
-        $dataPath = Join-Path $targetUrl (Join-Path 'FileHistory' $storePath)
-
-        if (-not (Test-Path $dataPath)) { return $null }
-
-        $latest = Get-ChildItem -Path $dataPath -Recurse -File -ErrorAction Stop |
-                  Sort-Object LastWriteTime -Descending |
-                  Select-Object -First 1
-
-        if ($null -eq $latest) { return $null }
-
-        return $latest.LastWriteTime
+        return $bestTime
     } catch {
         return $null
     }
