@@ -3251,9 +3251,12 @@ switch ($mode) {
 }
 
 if ($triggers.Count -eq 0) {
-    throw "Nessun registro eventi valido per il trigger EVENT (controlla BackupMode e i log presenti su questo sistema)."
+    # Fallback: nessun log trovato (PC nuovo senza backup mai avviato).
+    # Usa log Application come trigger placeholder -- il task esiste ma non sparerà
+    # finché non viene configurato un backup reale.
+    Write-DiagLog "Install-AutomationTasks: nessun log backup trovato, uso fallback Application log" 'WARN'
+    $triggers.Add((New-EventTriggerXml 'Application' '*[System[(Level=2) and (EventID=0)]]')) | Out-Null
 }
-
 $eventTrigger = ($triggers -join '')
 
 
@@ -3268,7 +3271,13 @@ $eventTrigger = ($triggers -join '')
 
         $tmp = Join-Path $env:TEMP 'task_event.xml'
         [System.IO.File]::WriteAllText($tmp, $xml, [System.Text.Encoding]::Unicode)
-        Register-ScheduledTask -Xml (Get-Content $tmp -Raw) -TaskName $eventTask -Force -ErrorAction Stop | Out-Null
+        Write-DiagLog "task_event.xml scritto in: $tmp" 'INFO'
+        try {
+            Register-ScheduledTask -Xml (Get-Content $tmp -Raw) -TaskName $eventTask -Force -ErrorAction Stop | Out-Null
+        } catch {
+            Write-DiagLog "XML task EVENT: $xml" 'ERROR'
+            throw
+        }
     } catch {
         # Rollback: rimuovi EVENT parzialmente creato
         try { Unregister-ScheduledTask -TaskName $eventTask -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch { }
