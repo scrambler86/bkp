@@ -3141,7 +3141,7 @@ function Install-AutomationTasks($cfg) {
     # Scrivi/aggiorna bkp.ps1 in ProgramData\BackupMonitor (accessibile da SYSTEM, no permessi speciali)
     $bkpTargetPath = Join-Path $env:ProgramData 'BackupMonitor\bkp.ps1'
     try {
-        Write-BkpScript -TargetPath $bkpTargetPath | Out-Null
+        Write-BkpScript
     } catch {
         throw "Impossibile scrivere bkp.ps1 in $bkpTargetPath : $($_.Exception.Message)"
     }
