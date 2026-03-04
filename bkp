@@ -2800,7 +2800,7 @@ $y += ($grpGen.Height + $ui.GapY)
 # [BOOKMARK:TASKS]
 # [BOOKMARK:VERSION]
 # Versione corrente dello script. Incrementare ad ogni modifica distribuita.
-$script:BKP_VERSION = '5.17'
+$script:BKP_VERSION = '5.18'
 
 # [BOOKMARK:WRITE_BKP_SCRIPT]
 function Get-BkpInstalledVersion([string]$bkpPath) {
