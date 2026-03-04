@@ -3382,7 +3382,18 @@ function Remove-AutomationTasks($cfg) {
 
 function Get-TaskInstalled([string]$taskName) {
     $sanitized = $taskName -replace '[^\w]', '_'
-    try { [void](Get-ScheduledTask -TaskName $sanitized -ErrorAction Stop); return $true } catch { return $false }
+    try {
+        [void](Get-ScheduledTask -TaskName $sanitized -ErrorAction Stop)
+        return $true
+    } catch {
+        # Fallback: Get-ScheduledTask non disponibile (WMI rotto su alcuni Win11)
+        try {
+            $null = & schtasks.exe /Query /TN $sanitized 2>&1
+            return ($LASTEXITCODE -eq 0)
+        } catch {
+            return $false
+        }
+    }
 }
 
 # [BOOKMARK:ENTRYPOINT]
