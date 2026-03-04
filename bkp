@@ -3337,36 +3337,32 @@ $eventTrigger = ($triggers -join '')
 }
 
 function Remove-AutomationTasks($cfg) {
-    # FIX: rimuove i task usando i nomi salvati nella config (InstalledTaskNames),
-    # non quelli derivati dal BackupName corrente. Cosi se BackupName e stato
-    # cambiato dopo l'installazione, i vecchi task vengono comunque rimossi.
     $toRemove = New-Object System.Collections.Generic.List[string]
-
-    # Nomi reali installati (salvati al momento dell'installazione)
     if ($cfg.PSObject.Properties.Match('InstalledTaskNames').Count -gt 0 -and $cfg.InstalledTaskNames) {
         $itn = $cfg.InstalledTaskNames
         if ($itn.PSObject.Properties.Match('EventTaskName').Count -gt 0 -and $itn.EventTaskName) { $toRemove.Add([string]$itn.EventTaskName) }
         if ($itn.PSObject.Properties.Match('DailyTaskName').Count -gt 0 -and $itn.DailyTaskName) { $toRemove.Add([string]$itn.DailyTaskName) }
     }
-
-    # Fallback: nomi derivati dal BackupName corrente
-    $toRemove.Add("Monitor_Backup_$($cfg.BackupName)_EVENT")
-    $toRemove.Add("Monitor_Backup_$($cfg.BackupName)_DAILY")
+    $toRemove.Add(("Monitor_Backup_$($cfg.BackupName)_EVENT" -replace '[^\w]','_'))
+    $toRemove.Add(("Monitor_Backup_$($cfg.BackupName)_DAILY" -replace '[^\w]','_'))
 
     $allRemoved = $true
     foreach ($n in ($toRemove | Select-Object -Unique)) {
-        # Prova rimozione reale: se il task esiste e non viene rimosso, traccia il fallimento
-        if (Get-TaskInstalled $n) {
+        $sanitized = $n -replace '[^\w]','_'
+        if (Get-TaskInstalled $sanitized) {
+            # Prova prima Unregister-ScheduledTask, fallback su schtasks.exe
+            $removed = $false
             try {
-                Unregister-ScheduledTask -TaskName $n -Confirm:$false -ErrorAction Stop | Out-Null
+                Unregister-ScheduledTask -TaskName $sanitized -Confirm:$false -ErrorAction Stop | Out-Null
+                $removed = $true
             } catch {
-                $allRemoved = $false
+                $null = & schtasks.exe /Delete /TN $sanitized /F 2>&1
+                $removed = ($LASTEXITCODE -eq 0)
             }
+            if (-not $removed) { $allRemoved = $false }
         }
     }
 
-    # FIX: pulisce InstalledTaskNames SOLO se tutti i task sono stati rimossi con successo.
-    # Se la rimozione e fallita, mantiene i nomi in config cosi il menu li traccia ancora.
     if ($allRemoved) {
         try {
             $saved = Load-Config
@@ -3376,7 +3372,6 @@ function Remove-AutomationTasks($cfg) {
             }
         } catch { }
     }
-
     return $allRemoved
 }
 
