@@ -1485,6 +1485,37 @@ function Get-WBJobState($cfg) {
     }
 }
 
+function Get-FileHistoryLastBackupTime {
+    try {
+        $configXmlPath = Join-Path $env:USERPROFILE `
+            'AppData\Local\Microsoft\Windows\FileHistory\Configuration\Config1.xml'
+
+        if (-not (Test-Path $configXmlPath)) { return $null }
+
+        [xml]$fhCfg = Get-Content $configXmlPath -ErrorAction Stop
+        $targetUrl  = $fhCfg.DataProtectionUserConfig.Target.TargetUrl
+        $storePath  = $fhCfg.DataProtectionUserConfig.Target.TargetBackupStorePath
+
+        if ([string]::IsNullOrWhiteSpace($targetUrl) -or [string]::IsNullOrWhiteSpace($storePath)) {
+            return $null
+        }
+
+        $dataPath = Join-Path $targetUrl (Join-Path 'FileHistory' $storePath)
+
+        if (-not (Test-Path $dataPath)) { return $null }
+
+        $latest = Get-ChildItem -Path $dataPath -Recurse -File -ErrorAction Stop |
+                  Sort-Object LastWriteTime -Descending |
+                  Select-Object -First 1
+
+        if ($null -eq $latest) { return $null }
+
+        return $latest.LastWriteTime
+    } catch {
+        return $null
+    }
+}
+
 function Get-BackupState($cfg) {
     # v5: logica a cascata per massima copertura universale, ma con BackupMode selezionabile.
     # BackupMode:
@@ -1507,6 +1538,21 @@ function Get-BackupState($cfg) {
     $allLogs = @()
     switch ($mode) {
         'FileHistory' {
+            # Fonte 0: cartella destinazione File History (più affidabile dei log)
+            $fhLastTime = Get-FileHistoryLastBackupTime
+            if ($null -ne $fhLastTime) {
+                $ageHours = [math]::Round(((Get-Date) - $fhLastTime).TotalHours, 1)
+                $state = [pscustomobject]@{
+                    LastRelevantEvent = $null
+                    LastSuccessEvent  = $null
+                    LastFailureEvent  = $null
+                    Status  = 'OK'
+                    Message = "Backup File History: $($fhLastTime.ToString('dd/MM/yyyy HH:mm')) ($ageHours ore fa)"
+                }
+                Write-DiagLog "FileHistory fonte cartella: $fhLastTime ($ageHours ore fa)"
+                return $state
+            }
+            # Fallback: log eventi
             $allLogs = @(Get-FileHistoryOnlyLogs)
         }
         'WSB' {
@@ -1603,8 +1649,6 @@ function Get-BackupState($cfg) {
 
     return $state
 }
-
-
 function Evaluate-MissingBackup($cfg, $state) {
     # FIX: non converte UNKNOWN in MISSING.
     # UNKNOWN significa "non riesco a determinare lo stato" (log non leggibile,
