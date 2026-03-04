@@ -1660,6 +1660,9 @@ function Evaluate-MissingBackup($cfg, $state) {
     $hours = [double]$cfg.MissingIfSuccessOlderThanHours
 
     if (-not $state.LastSuccessEvent) {
+        # Se lo stato è già OK (es. FileHistory da cartella), non sovrascrivere
+        if ($state.Status -eq 'OK') { return $state }
+
         # FIX v5.1: se non è mai stato trovato un evento di successo backup,
         # NON segnalare MISSING (falso allarme su PC nuovi o senza backup configurato).
         # Lo stato UNKNOWN viene notificato solo se NotifyIfNeverBackedUp = true.
