@@ -2771,31 +2771,26 @@ $y += ($grpGen.Height + $ui.GapY)
         Save-Config $tmp
         $script:dirty = $false
 
-       # Reinstalla i task SOLO se serve (evita finestre "di buco" e perdita eventi durante i test).
+      # Reinstalla i task SOLO se serve (evita finestre "di buco" e perdita eventi durante i test).
         # Serve reinstallare solo quando cambiano trigger/nome task/schedule.
         $needReinstall = $false
-
         try {
-            # Task installati?
             $prevNames = $null
             if ($prev.PSObject.Properties.Match('InstalledTaskNames').Count -gt 0 -and $prev.InstalledTaskNames) {
                 $prevNames = $prev.InstalledTaskNames
             }
 
-            # Reinstalla automaticamente SOLO se i task erano già installati in precedenza.
-            # Al primo avvio (nessun InstalledTaskNames) l'utente deve usare il pulsante Installa.
-            $wereInstalled = ($prevNames -ne $null)
+            $prevEventTask = if ($prevNames -and $prevNames.PSObject.Properties.Match('EventTaskName').Count -gt 0) { [string]$prevNames.EventTaskName } else { "Monitor_Backup_$($prev.BackupName)_EVENT" }
+            $prevDailyTask = if ($prevNames -and $prevNames.PSObject.Properties.Match('DailyTaskName').Count -gt 0) { [string]$prevNames.DailyTaskName } else { "Monitor_Backup_$($prev.BackupName)_DAILY" }
+
+            # Verifica se i task esistono DAVVERO nel sistema (non basta InstalledTaskNames in config)
+            $eventExists = Get-TaskInstalled ($prevEventTask -replace '[^\w]','_')
+            $dailyExists = Get-TaskInstalled ($prevDailyTask -replace '[^\w]','_')
+            $wereInstalled = $eventExists -or $dailyExists
 
             if ($wereInstalled) {
-                $prevEventTask = if ($prevNames.PSObject.Properties.Match('EventTaskName').Count -gt 0) { [string]$prevNames.EventTaskName } else { "Monitor_Backup_$($prev.BackupName)_EVENT" }
-                $prevDailyTask = if ($prevNames.PSObject.Properties.Match('DailyTaskName').Count -gt 0) { [string]$prevNames.DailyTaskName } else { "Monitor_Backup_$($prev.BackupName)_DAILY" }
-
-                if (-not (Get-TaskInstalled $prevEventTask)) { $needReinstall = $true }
-                if ([bool]$tmp.DailyCheckEnabled -and (-not (Get-TaskInstalled $prevDailyTask))) { $needReinstall = $true }
-            }
-
-            # Cambi che impattano i trigger o la schedule (solo se già installati)
-            if ($wereInstalled) {
+                if (-not $eventExists) { $needReinstall = $true }
+                if ([bool]$tmp.DailyCheckEnabled -and (-not $dailyExists)) { $needReinstall = $true }
                 if ([string]$prev.BackupName -ne [string]$tmp.BackupName) { $needReinstall = $true }
                 if ([string]$prev.BackupMode -ne [string]$tmp.BackupMode) { $needReinstall = $true }
                 if ([bool]$prev.DailyCheckEnabled -ne [bool]$tmp.DailyCheckEnabled) { $needReinstall = $true }
@@ -2806,10 +2801,8 @@ $y += ($grpGen.Height + $ui.GapY)
                 }
             }
         } catch {
-            # Se non riusciamo a determinare e i task erano installati, meglio reinstallare
-            $needReinstall = $wereInstalled
+            $needReinstall = $false
         }
-
         if ($needReinstall) {
             try {
                 Install-AutomationTasks $tmp
@@ -2820,7 +2813,6 @@ $y += ($grpGen.Height + $ui.GapY)
         } else {
             $autoReinstallMsg = " Task NON reinstallati (non necessario)."
         }
-
         if (-not $Silent) {
             [System.Windows.Forms.MessageBox]::Show(
                 "Configurazione salvata in:`n$ConfigPath`n`nChiave segreti in:`n$SecretKeyPath`n`n$autoReinstallMsg",
