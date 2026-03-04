@@ -2771,10 +2771,12 @@ $y += ($grpGen.Height + $ui.GapY)
         Save-Config $tmp
         $script:dirty = $false
 
-      # Reinstalla i task SOLO se serve (evita finestre "di buco" e perdita eventi durante i test).
+       # Reinstalla i task SOLO se serve (evita finestre "di buco" e perdita eventi durante i test).
         # Serve reinstallare solo quando cambiano trigger/nome task/schedule.
         $needReinstall = $false
+
         try {
+            # Task installati?
             $prevNames = $null
             if ($prev.PSObject.Properties.Match('InstalledTaskNames').Count -gt 0 -and $prev.InstalledTaskNames) {
                 $prevNames = $prev.InstalledTaskNames
@@ -2783,26 +2785,25 @@ $y += ($grpGen.Height + $ui.GapY)
             $prevEventTask = if ($prevNames -and $prevNames.PSObject.Properties.Match('EventTaskName').Count -gt 0) { [string]$prevNames.EventTaskName } else { "Monitor_Backup_$($prev.BackupName)_EVENT" }
             $prevDailyTask = if ($prevNames -and $prevNames.PSObject.Properties.Match('DailyTaskName').Count -gt 0) { [string]$prevNames.DailyTaskName } else { "Monitor_Backup_$($prev.BackupName)_DAILY" }
 
-            # Verifica se i task esistono DAVVERO nel sistema (non basta InstalledTaskNames in config)
+            # Verifica se i task esistono nel sistema
             $eventExists = Get-TaskInstalled ($prevEventTask -replace '[^\w]','_')
             $dailyExists = Get-TaskInstalled ($prevDailyTask -replace '[^\w]','_')
-            $wereInstalled = $eventExists -or $dailyExists
 
-            if ($wereInstalled) {
-                if (-not $eventExists) { $needReinstall = $true }
-                if ([bool]$tmp.DailyCheckEnabled -and (-not $dailyExists)) { $needReinstall = $true }
-                if ([string]$prev.BackupName -ne [string]$tmp.BackupName) { $needReinstall = $true }
-                if ([string]$prev.BackupMode -ne [string]$tmp.BackupMode) { $needReinstall = $true }
-                if ([bool]$prev.DailyCheckEnabled -ne [bool]$tmp.DailyCheckEnabled) { $needReinstall = $true }
-                if ([string]$prev.DailyCheckTime -ne [string]$tmp.DailyCheckTime) { $needReinstall = $true }
-                if ([string]$prev.ScheduleFrequency -ne [string]$tmp.ScheduleFrequency) { $needReinstall = $true }
-                if ((Normalize-BackupMode ([string]$tmp.BackupMode)) -eq 'Auto') {
-                    if ([bool]$prev.MonitorFileHistory -ne [bool]$tmp.MonitorFileHistory) { $needReinstall = $true }
-                }
+            # Installa sempre se non esistono, oppure se cambiano parametri trigger/schedule
+            if (-not $eventExists) { $needReinstall = $true }
+            if ([bool]$tmp.DailyCheckEnabled -and (-not $dailyExists)) { $needReinstall = $true }
+            if ([string]$prev.BackupName -ne [string]$tmp.BackupName) { $needReinstall = $true }
+            if ([string]$prev.BackupMode -ne [string]$tmp.BackupMode) { $needReinstall = $true }
+            if ([bool]$prev.DailyCheckEnabled -ne [bool]$tmp.DailyCheckEnabled) { $needReinstall = $true }
+            if ([string]$prev.DailyCheckTime -ne [string]$tmp.DailyCheckTime) { $needReinstall = $true }
+            if ([string]$prev.ScheduleFrequency -ne [string]$tmp.ScheduleFrequency) { $needReinstall = $true }
+            if ((Normalize-BackupMode ([string]$tmp.BackupMode)) -eq 'Auto') {
+                if ([bool]$prev.MonitorFileHistory -ne [bool]$tmp.MonitorFileHistory) { $needReinstall = $true }
             }
         } catch {
-            $needReinstall = $false
+            $needReinstall = $true
         }
+
         if ($needReinstall) {
             try {
                 Install-AutomationTasks $tmp
@@ -2813,6 +2814,7 @@ $y += ($grpGen.Height + $ui.GapY)
         } else {
             $autoReinstallMsg = " Task NON reinstallati (non necessario)."
         }
+
         if (-not $Silent) {
             [System.Windows.Forms.MessageBox]::Show(
                 "Configurazione salvata in:`n$ConfigPath`n`nChiave segreti in:`n$SecretKeyPath`n`n$autoReinstallMsg",
@@ -3006,6 +3008,20 @@ function Write-BkpScript {
     throw "Write-BkpScript: impossibile scrivere bkp.ps1 (né Base64 né file sorgente disponibili)"
 }
    
+function Remove-TaskSafe([string]$taskName) {
+    if ([string]::IsNullOrWhiteSpace($taskName)) { return }
+    $sanitized = $taskName -replace '[^\w]', '_'
+    try {
+        if (Get-TaskInstalled $sanitized) {
+            try {
+                Unregister-ScheduledTask -TaskName $sanitized -Confirm:$false -ErrorAction Stop | Out-Null
+            } catch {
+                $null = & schtasks.exe /Delete /TN $sanitized /F 2>&1
+            }
+        }
+    } catch { }
+}
+
 function Install-AutomationTasks($cfg) {
     $cfg = Load-Config
 
