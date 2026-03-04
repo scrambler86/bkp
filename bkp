@@ -3290,7 +3290,7 @@ $eventTrigger = ($triggers -join '')
         }
     } catch {
         # Rollback: rimuovi EVENT parzialmente creato
-        try { Unregister-ScheduledTask -TaskName $eventTask -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch { }
+        Remove-TaskSafe $eventTask
         throw "Creazione task EVENT fallita: $($_.Exception.Message). Rollback eseguito."
     }
 
@@ -3302,7 +3302,7 @@ $eventTrigger = ($triggers -join '')
         $scheduleFrequency = ([string]$cfg.ScheduleFrequency).Trim()
         if ($scheduleFrequency -notin @('Daily','Weekly','Monthly')) { $scheduleFrequency = 'Daily' }
 
-        try { Unregister-ScheduledTask -TaskName $dailyTask -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch { }
+        Remove-TaskSafe $dailyTask
 
         $taskCmd = "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$bkpTargetPath`" -RunDailyCheck"
 
@@ -3322,12 +3322,12 @@ $eventTrigger = ($triggers -join '')
         $null = & schtasks.exe @args 2>&1
         if ($LASTEXITCODE -ne 0) {
             # Rollback completo: rimuovi sia DAILY (potenzialmente parziale) che EVENT
-            try { Unregister-ScheduledTask -TaskName $dailyTask -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch { }
-            try { Unregister-ScheduledTask -TaskName $eventTask -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch { }
+            Remove-TaskSafe $dailyTask
+            Remove-TaskSafe $eventTask
             throw "Creazione task DAILY fallita (schtasks exit code: $LASTEXITCODE). Orario richiesto: $at. Rollback completo eseguito."
         }
     } else {
-        try { Unregister-ScheduledTask -TaskName $dailyTask -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch { }
+        Remove-TaskSafe $dailyTask
     }
 
     # FIX: salva InstalledTaskNames SOLO ora, quando tutta l'installazione e riuscita.
