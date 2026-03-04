@@ -3381,7 +3381,8 @@ function Remove-AutomationTasks($cfg) {
 }
 
 function Get-TaskInstalled([string]$taskName) {
-    try { [void](Get-ScheduledTask -TaskName $taskName -ErrorAction Stop); return $true } catch { return $false }
+    $sanitized = $taskName -replace '[^\w]', '_'
+    try { [void](Get-ScheduledTask -TaskName $sanitized -ErrorAction Stop); return $true } catch { return $false }
 }
 
 # [BOOKMARK:ENTRYPOINT]
