@@ -2957,7 +2957,6 @@ function Get-BkpInstalledVersion([string]$bkpPath) {
 function Write-BkpScript {
     Ensure-Dir $ConfigDir
     $dest = Join-Path $ConfigDir 'bkp.ps1'
-
     # Prova prima con il Base64 embedded (funziona sia da .exe che da .ps1 precompilato)
     if (-not [string]::IsNullOrWhiteSpace($script:BKP_EMBEDDED_PS1) -and
         $script:BKP_EMBEDDED_PS1 -ne 'PLACEHOLDER_BASE64') {
@@ -2965,24 +2964,26 @@ function Write-BkpScript {
             $bytes = [Convert]::FromBase64String($script:BKP_EMBEDDED_PS1)
             [System.IO.File]::WriteAllBytes($dest, $bytes)
             Write-DiagLog "Write-BkpScript: scritto da Base64 embedded -> $dest"
+            Set-FileAclToSystemAndAdmins $dest
+            try { (Get-Item $dest).Attributes = 'Hidden' } catch { }
             return
         } catch {
             Write-DiagLog "Write-BkpScript: fallback da Base64 fallito: $($_.Exception.Message)" 'WARN'
         }
     }
-
     # Fallback: copia se stesso (funziona solo quando eseguito come .ps1)
     $src = Get-SelfScriptPath
     if (-not [string]::IsNullOrWhiteSpace($src) -and (Test-Path $src)) {
         try {
             Copy-Item -Path $src -Destination $dest -Force
             Write-DiagLog "Write-BkpScript: copiato da $src -> $dest"
+            Set-FileAclToSystemAndAdmins $dest
+            try { (Get-Item $dest).Attributes = 'Hidden' } catch { }
             return
         } catch {
             Write-DiagLog "Write-BkpScript: copia file fallita: $($_.Exception.Message)" 'WARN'
         }
     }
-
     throw "Write-BkpScript: impossibile scrivere bkp.ps1 (né Base64 né file sorgente disponibili)"
 }
 
