@@ -3525,16 +3525,19 @@ function Run-MainForm {
     [void](Get-OrCreate-SecretKeyBytes)
 
     function Get-TaskNames($c) {
-        if ($c.PSObject.Properties.Match('InstalledTaskNames').Count -gt 0 -and $c.InstalledTaskNames) {
-            $itn = $c.InstalledTaskNames
-            $ev  = if ($itn.PSObject.Properties.Match('EventTaskName').Count -gt 0)  { [string]$itn.EventTaskName }  else { "Monitor_Backup_$($c.BackupName)_EVENT" }
-            $dy  = if ($itn.PSObject.Properties.Match('DailyTaskName').Count -gt 0) { [string]$itn.DailyTaskName } else { "Monitor_Backup_$($c.BackupName)_DAILY" }
-        } else {
-            $ev = "Monitor_Backup_$($c.BackupName)_EVENT"
-            $dy = "Monitor_Backup_$($c.BackupName)_DAILY"
-        }
-        return @{ Event = $ev; Daily = $dy }
+    if ($c.PSObject.Properties.Match('InstalledTaskNames').Count -gt 0 -and $c.InstalledTaskNames) {
+        $itn = $c.InstalledTaskNames
+        $ev  = if ($itn.PSObject.Properties.Match('EventTaskName').Count -gt 0)  { [string]$itn.EventTaskName }  else { "Monitor_Backup_$($c.BackupName)_EVENT" }
+        $dy  = if ($itn.PSObject.Properties.Match('DailyTaskName').Count -gt 0) { [string]$itn.DailyTaskName } else { "Monitor_Backup_$($c.BackupName)_DAILY" }
+    } else {
+        $ev = "Monitor_Backup_$($c.BackupName)_EVENT"
+        $dy = "Monitor_Backup_$($c.BackupName)_DAILY"
     }
+    # Sanitizza sempre: sostituisce caratteri non validi con _
+    $ev = $ev -replace '[^\w]', '_'
+    $dy = $dy -replace '[^\w]', '_'
+    return @{ Event = $ev; Daily = $dy }
+}
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text            = "Backup Monitor v$($script:BKP_VERSION)"
