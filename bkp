@@ -2992,7 +2992,6 @@ function Write-BkpScript {
     throw "Write-BkpScript: impossibile scrivere bkp.ps1 (né Base64 né file sorgente disponibili)"
 }
    
-}
 function Install-AutomationTasks($cfg) {
     $cfg = Load-Config
 
