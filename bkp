@@ -3676,15 +3676,13 @@ function Run-MainForm {
         catch { Msg "ERRORE Setup: $($_.Exception.Message)" $true }
     })
 
-    $btnInstall.Add_Click({
+   $btnInstall.Add_Click({
         try {
-            $c = Load-Config
-            Install-AutomationTasks $c
+            Write-BkpScript
             RefreshStatus
-            Msg '+ Automazione reinstallata correttamente.'
+            Msg '+ bkp.ps1 installato correttamente.'
         } catch { Msg "ERRORE: $($_.Exception.Message)" $true }
     })
-
     $btnRemove.Add_Click({
         try {
             $c = Load-Config
@@ -3694,7 +3692,6 @@ function Run-MainForm {
             else     { Msg '- Rimozione parziale: controlla Task Scheduler.' $true }
         } catch { Msg "ERRORE: $($_.Exception.Message)" $true }
     })
-
     $btnClose.Add_Click({ $form.Close() })
 
     $btnLog.Add_Click({
