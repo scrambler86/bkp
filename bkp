@@ -3650,11 +3650,13 @@ function Run-MainForm {
         $bkpPath = Join-Path $env:ProgramData 'BackupMonitor\bkp.ps1'
         $installedVer = Get-BkpInstalledVersion $bkpPath
         $currentVer   = $script:BKP_VERSION
-        if ([string]::IsNullOrWhiteSpace($installedVer)) {
-            $btnInstall.Text      = 'Reinstalla'
-            $btnInstall.BackColor = [System.Drawing.Color]::FromArgb(255,200,0)
-            $lblMsg.Text          = "bkp.ps1 non trovato -- clicca Reinstalla."
-            $lblMsg.ForeColor     = [System.Drawing.Color]::DarkOrange
+        $isFirstInstall = (-not (Test-Path (Join-Path $env:ProgramData 'BackupMonitor\config.json')))
+
+        if ($isFirstInstall -or [string]::IsNullOrWhiteSpace($installedVer)) {
+            $btnInstall.Text      = 'Installa'
+            $btnInstall.BackColor = [System.Drawing.Color]::FromArgb(100,180,100)
+            $lblMsg.Text          = "Prima installazione -- configura e clicca Installa."
+            $lblMsg.ForeColor     = [System.Drawing.Color]::DarkGreen
         } elseif ($installedVer -ne $currentVer) {
             $btnInstall.Text      = 'Reinstalla'
             $btnInstall.BackColor = [System.Drawing.Color]::FromArgb(255,200,0)
