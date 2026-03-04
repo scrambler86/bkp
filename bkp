@@ -1485,42 +1485,55 @@ function Get-WBJobState($cfg) {
     }
 }
 
-function Get-FileHistoryLastBackupTime {
+function Get-FileHistoryLastBackupTime($cfg = $null) {
     try {
-        $configPaths = @()
-        $configPaths += Join-Path $env:USERPROFILE 'AppData\Local\Microsoft\Windows\FileHistory\Configuration\Config1.xml'
+        $dataPaths = @()
 
-        try {
-            $usersRoot = Split-Path (Split-Path $env:USERPROFILE -Parent) -Parent
-            Get-ChildItem $usersRoot -Directory -ErrorAction Stop | ForEach-Object {
-                $p = Join-Path $_.FullName 'AppData\Local\Microsoft\Windows\FileHistory\Configuration\Config1.xml'
-                if ($p -notin $configPaths) { $configPaths += $p }
+        # Fonte 1: path salvato nella config (funziona anche come SYSTEM)
+        if ($null -ne $cfg) {
+            $saved = ''
+            try { $saved = [string]$cfg.FileHistoryDataPath } catch { }
+            if (-not [string]::IsNullOrWhiteSpace($saved) -and (Test-Path $saved)) {
+                $dataPaths += $saved
             }
-        } catch { }
+        }
+
+        # Fonte 2: ricerca dinamica dal Config XML (funziona solo come utente)
+        if ($dataPaths.Count -eq 0) {
+            $configPaths = @()
+            $configPaths += Join-Path $env:USERPROFILE 'AppData\Local\Microsoft\Windows\FileHistory\Configuration\Config1.xml'
+
+            try {
+                $usersRoot = Split-Path (Split-Path $env:USERPROFILE -Parent) -Parent
+                Get-ChildItem $usersRoot -Directory -ErrorAction Stop | ForEach-Object {
+                    $p = Join-Path $_.FullName 'AppData\Local\Microsoft\Windows\FileHistory\Configuration\Config1.xml'
+                    if ($p -notin $configPaths) { $configPaths += $p }
+                }
+            } catch { }
+
+            foreach ($configXmlPath in $configPaths) {
+                try {
+                    if (-not (Test-Path $configXmlPath)) { continue }
+                    [xml]$fhCfg = Get-Content $configXmlPath -ErrorAction Stop
+                    $targetUrl = $fhCfg.DataProtectionUserConfig.Target.TargetUrl
+                    $storePath = $fhCfg.DataProtectionUserConfig.Target.TargetBackupStorePath
+                    if ([string]::IsNullOrWhiteSpace($targetUrl) -or [string]::IsNullOrWhiteSpace($storePath)) { continue }
+                    $dp = Join-Path $targetUrl (Join-Path 'FileHistory' $storePath)
+                    if ((Test-Path $dp) -and ($dp -notin $dataPaths)) { $dataPaths += $dp }
+                } catch { }
+            }
+        }
 
         $bestTime = $null
 
-        foreach ($configXmlPath in $configPaths) {
+        foreach ($dataPath in $dataPaths) {
             try {
-                if (-not (Test-Path $configXmlPath)) { continue }
-
-                [xml]$fhCfg = Get-Content $configXmlPath -ErrorAction Stop
-                $targetUrl  = $fhCfg.DataProtectionUserConfig.Target.TargetUrl
-                $storePath  = $fhCfg.DataProtectionUserConfig.Target.TargetBackupStorePath
-
-                if ([string]::IsNullOrWhiteSpace($targetUrl) -or [string]::IsNullOrWhiteSpace($storePath)) { continue }
-
-                $dataPath = Join-Path $targetUrl (Join-Path 'FileHistory' $storePath)
-                if (-not (Test-Path $dataPath)) { continue }
-
-                # Prima cerca file recenti (ultimi 7 giorni) -- veloce
                 $cutoff = (Get-Date).AddDays(-7)
                 $latest = Get-ChildItem -Path $dataPath -Recurse -File -ErrorAction Stop |
                           Where-Object { $_.LastWriteTime -gt $cutoff } |
                           Sort-Object LastWriteTime -Descending |
                           Select-Object -First 1
 
-                # Fallback: cerca senza limite di tempo
                 if ($null -eq $latest) {
                     $latest = Get-ChildItem -Path $dataPath -Recurse -File -ErrorAction Stop |
                               Sort-Object LastWriteTime -Descending |
@@ -1540,7 +1553,6 @@ function Get-FileHistoryLastBackupTime {
         return $null
     }
 }
-
 function Get-BackupState($cfg) {
     # v5: logica a cascata per massima copertura universale, ma con BackupMode selezionabile.
     # BackupMode:
@@ -1564,7 +1576,7 @@ function Get-BackupState($cfg) {
     switch ($mode) {
         'FileHistory' {
             # Fonte 0: cartella destinazione File History (più affidabile dei log)
-            $fhLastTime = Get-FileHistoryLastBackupTime
+            $fhLastTime = Get-FileHistoryLastBackupTime $cfg
             if ($null -ne $fhLastTime) {
                 $span = (Get-Date) - $fhLastTime
                 $ageStr = if ($span.TotalHours -lt 1) {
@@ -2252,9 +2264,9 @@ function Run-SetupForm {
 
     $ui = @{
         FormWidth   = 848
-        FormHeight  = 700
+        FormHeight  = 730
         MinWidth    = 820
-        MinHeight   = 670
+        MinHeight   = 700
         BottomH     = 50
         SideMargin  = 16
         GroupWidth  = 802
@@ -2419,7 +2431,7 @@ function Run-SetupForm {
     $grpGen.Left = $SideMargin
     $grpGen.Top = $y
     $grpGen.Width = $ui.GroupWidth
-    $grpGen.Height = 116
+    $grpGen.Height = 146
     $grpGen.Anchor = 'Top,Left,Right'
     $content.Controls.Add($grpGen)
 
@@ -2465,6 +2477,52 @@ function Run-SetupForm {
 
     $toolTipMode = New-Object System.Windows.Forms.ToolTip
     $toolTipMode.SetToolTip($cbBackupMode, "Auto = usa il comportamento storico (WSB + fallback).`nServer = usa WSB (Get-WBJob + log).`nPC Cronologia file = usa solo File History.`nSuggerimento rilevato: $(Get-BackupModeHint)")
+
+    $gy += 28
+    Add-Label $grpGen "Cartella File History" 18 $gy $LabelW | Out-Null
+    $tbFHPath = Add-TextBox $grpGen $InputX $gy 400
+    $tbFHPath.Text = if ($cfg.PSObject.Properties.Match('FileHistoryDataPath').Count -gt 0) { [string]$cfg.FileHistoryDataPath } else { '' }
+    $btnFHDetect = New-Object System.Windows.Forms.Button
+    $btnFHDetect.Text = "Rileva"
+    $btnFHDetect.Width = 70
+    $btnFHDetect.Left = $InputX + 408
+    $btnFHDetect.Top = $gy
+    $btnFHDetect.Add_Click({
+        $detected = Get-FileHistoryLastBackupTime
+        # Ricava il path dalla funzione leggendo il Config XML
+        try {
+            $configXmlPath = Join-Path $env:USERPROFILE 'AppData\Local\Microsoft\Windows\FileHistory\Configuration\Config1.xml'
+            if (Test-Path $configXmlPath) {
+                [xml]$fhCfg = Get-Content $configXmlPath -ErrorAction Stop
+                $targetUrl = $fhCfg.DataProtectionUserConfig.Target.TargetUrl
+                $storePath = $fhCfg.DataProtectionUserConfig.Target.TargetBackupStorePath
+                $dp = Join-Path $targetUrl (Join-Path 'FileHistory' $storePath)
+                if (Test-Path $dp) {
+                    $tbFHPath.Text = $dp
+                    Mark-Dirty
+                    [System.Windows.Forms.MessageBox]::Show("Rilevato: $dp",'OK','OK','Information') | Out-Null
+                } else {
+                    Show-Err "Cartella non trovata: $dp"
+                }
+            } else {
+                Show-Err "Config File History non trovato."
+            }
+        } catch {
+            Show-Err "Errore rilevamento: $($_.Exception.Message)"
+        }
+    })
+    $grpGen.Controls.Add($btnFHDetect)
+
+    # Mostra/nascondi riga File History in base alla modalità
+    function Update-FHPathVisibility {
+        $code = Get-BackupModeCodeFromUi ([string]$cbBackupMode.SelectedItem)
+        $visible = ($code -eq 'FileHistory')
+        $tbFHPath.Visible = $visible
+        $btnFHDetect.Visible = $visible
+        ($grpGen.Controls | Where-Object { $_.Text -eq 'Cartella File History' }) | ForEach-Object { $_.Visible = $visible }
+    }
+    try { $cbBackupMode.Add_SelectedIndexChanged({ Update-FHPathVisibility }) } catch { }
+    Update-FHPathVisibility
 $y += ($grpGen.Height + $ui.GapY)
 
     # ---------------- POLITICHE ----------------
@@ -2681,6 +2739,7 @@ $y += ($grpGen.Height + $ui.GapY)
         }
         $cooldownSave = if ($chkCooldown.Checked) { 30 } else { 0 }
         Set-OrAddProp $tmp 'EventCooldownMinutes' $cooldownSave
+        Set-OrAddProp $tmp 'FileHistoryDataPath' $tbFHPath.Text.Trim()
 
         Ensure-SubObject $tmp 'Email' (Get-DefaultConfig).Email
         $tmp.Email.SmtpHost = $tbHost.Text.Trim()
