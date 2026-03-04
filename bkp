@@ -2771,7 +2771,7 @@ $y += ($grpGen.Height + $ui.GapY)
         Save-Config $tmp
         $script:dirty = $false
 
-        # Reinstalla i task SOLO se serve (evita finestre "di buco" e perdita eventi durante i test).
+       # Reinstalla i task SOLO se serve (evita finestre "di buco" e perdita eventi durante i test).
         # Serve reinstallare solo quando cambiano trigger/nome task/schedule.
         $needReinstall = $false
 
@@ -2782,27 +2782,32 @@ $y += ($grpGen.Height + $ui.GapY)
                 $prevNames = $prev.InstalledTaskNames
             }
 
-            $prevEventTask = if ($prevNames -and $prevNames.PSObject.Properties.Match('EventTaskName').Count -gt 0) { [string]$prevNames.EventTaskName } else { "Monitor_Backup_$($prev.BackupName)_EVENT" }
-            $prevDailyTask = if ($prevNames -and $prevNames.PSObject.Properties.Match('DailyTaskName').Count -gt 0) { [string]$prevNames.DailyTaskName } else { "Monitor_Backup_$($prev.BackupName)_DAILY" }
+            # Reinstalla automaticamente SOLO se i task erano già installati in precedenza.
+            # Al primo avvio (nessun InstalledTaskNames) l'utente deve usare il pulsante Installa.
+            $wereInstalled = ($prevNames -ne $null)
 
-            if (-not (Get-TaskInstalled $prevEventTask)) { $needReinstall = $true }
-            if ([bool]$tmp.DailyCheckEnabled -and (-not (Get-TaskInstalled $prevDailyTask))) { $needReinstall = $true }
+            if ($wereInstalled) {
+                $prevEventTask = if ($prevNames.PSObject.Properties.Match('EventTaskName').Count -gt 0) { [string]$prevNames.EventTaskName } else { "Monitor_Backup_$($prev.BackupName)_EVENT" }
+                $prevDailyTask = if ($prevNames.PSObject.Properties.Match('DailyTaskName').Count -gt 0) { [string]$prevNames.DailyTaskName } else { "Monitor_Backup_$($prev.BackupName)_DAILY" }
 
-            # Cambi che impattano i trigger o la schedule
-            if ([string]$prev.BackupName -ne [string]$tmp.BackupName) { $needReinstall = $true }
-            if ([string]$prev.BackupMode -ne [string]$tmp.BackupMode) { $needReinstall = $true }
+                if (-not (Get-TaskInstalled $prevEventTask)) { $needReinstall = $true }
+                if ([bool]$tmp.DailyCheckEnabled -and (-not (Get-TaskInstalled $prevDailyTask))) { $needReinstall = $true }
+            }
 
-            if ([bool]$prev.DailyCheckEnabled -ne [bool]$tmp.DailyCheckEnabled) { $needReinstall = $true }
-            if ([string]$prev.DailyCheckTime -ne [string]$tmp.DailyCheckTime) { $needReinstall = $true }
-            if ([string]$prev.ScheduleFrequency -ne [string]$tmp.ScheduleFrequency) { $needReinstall = $true }
-
-            # In AUTO, la spunta FileHistory cambia i trigger EVENT
-            if ((Normalize-BackupMode ([string]$tmp.BackupMode)) -eq 'Auto') {
-                if ([bool]$prev.MonitorFileHistory -ne [bool]$tmp.MonitorFileHistory) { $needReinstall = $true }
+            # Cambi che impattano i trigger o la schedule (solo se già installati)
+            if ($wereInstalled) {
+                if ([string]$prev.BackupName -ne [string]$tmp.BackupName) { $needReinstall = $true }
+                if ([string]$prev.BackupMode -ne [string]$tmp.BackupMode) { $needReinstall = $true }
+                if ([bool]$prev.DailyCheckEnabled -ne [bool]$tmp.DailyCheckEnabled) { $needReinstall = $true }
+                if ([string]$prev.DailyCheckTime -ne [string]$tmp.DailyCheckTime) { $needReinstall = $true }
+                if ([string]$prev.ScheduleFrequency -ne [string]$tmp.ScheduleFrequency) { $needReinstall = $true }
+                if ((Normalize-BackupMode ([string]$tmp.BackupMode)) -eq 'Auto') {
+                    if ([bool]$prev.MonitorFileHistory -ne [bool]$tmp.MonitorFileHistory) { $needReinstall = $true }
+                }
             }
         } catch {
-            # Se non riusciamo a determinare, meglio reinstallare che lasciare task incoerenti
-            $needReinstall = $true
+            # Se non riusciamo a determinare e i task erano installati, meglio reinstallare
+            $needReinstall = $wereInstalled
         }
 
         if ($needReinstall) {
