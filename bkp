@@ -1541,15 +1541,22 @@ function Get-BackupState($cfg) {
             # Fonte 0: cartella destinazione File History (più affidabile dei log)
             $fhLastTime = Get-FileHistoryLastBackupTime
             if ($null -ne $fhLastTime) {
-                $ageHours = [math]::Round(((Get-Date) - $fhLastTime).TotalHours, 1)
+                $span = (Get-Date) - $fhLastTime
+                $ageStr = if ($span.TotalHours -lt 1) {
+                    "$([int]$span.TotalMinutes) minuti fa"
+                } elseif ($span.TotalHours -lt 24) {
+                    "$([int]$span.Hours) ore $([int]$span.Minutes) min fa"
+                } else {
+                    "$([int]$span.TotalDays) giorni fa"
+                }
                 $state = [pscustomobject]@{
                     LastRelevantEvent = $null
                     LastSuccessEvent  = $null
                     LastFailureEvent  = $null
                     Status  = 'OK'
-                    Message = "Backup File History: $($fhLastTime.ToString('dd/MM/yyyy HH:mm')) ($ageHours ore fa)"
+                    Message = "Backup File History: $($fhLastTime.ToString('dd/MM/yyyy HH:mm')) - $ageStr"
                 }
-                Write-DiagLog "FileHistory fonte cartella: $fhLastTime ($ageHours ore fa)"
+                Write-DiagLog "FileHistory fonte cartella: $fhLastTime ($ageStr)"
                 return $state
             }
             # Fallback: log eventi
@@ -1649,6 +1656,7 @@ function Get-BackupState($cfg) {
 
     return $state
 }
+
 function Evaluate-MissingBackup($cfg, $state) {
     # FIX: non converte UNKNOWN in MISSING.
     # UNKNOWN significa "non riesco a determinare lo stato" (log non leggibile,
